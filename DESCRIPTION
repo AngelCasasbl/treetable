@@ -1,0 +1,38 @@
+Package: treetable
+Title: Configurable Hierarchical Tree Tables as an 'htmlwidgets' Widget
+Version: 0.1.0
+Authors@R:
+    person("Luis Angel", "Casas", , "luisangelcasasbl@gmail.com", role = c("aut", "cre"))
+Description: Aggregate a flat data frame into an arbitrary-depth hierarchy
+    (group > subgroup > item > ...) with subtotals at every level, and
+    render it as an interactive, expandable/collapsible tree table built on
+    'htmlwidgets'. Columns can compare one or two metrics side by side (with
+    automatic percentage variance), row colors and column number formats are
+    fully configurable from R, and each leaf row can open a detail modal
+    backed by a table or a user-supplied 'Shiny' UI. Works the same way
+    inside and outside 'Shiny' (console, 'R Markdown'/'Quarto', 'Shiny' apps).
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+URL: https://github.com/AngelCasasbl/treeTable
+BugReports: https://github.com/AngelCasasbl/treeTable/issues
+Depends:
+    R (>= 4.1)
+Imports:
+    cli,
+    dplyr (>= 1.1.0),
+    htmltools,
+    htmlwidgets,
+    purrr,
+    rlang,
+    tibble
+Suggests:
+    DT,
+    knitr,
+    reactable,
+    rmarkdown,
+    shiny,
+    testthat (>= 3.0.0)
+VignetteBuilder: knitr
+Config/testthat/edition: 3
+Config/roxygen2/version: 8.1.0

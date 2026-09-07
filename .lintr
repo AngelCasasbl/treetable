@@ -1,0 +1,12 @@
+linters: linters_with_defaults(
+    line_length_linter(100),
+    object_name_linter(styles = "snake_case")
+  )
+exclusions: list(
+    "tests/testthat.R",
+    # Required camelCase to match the htmlwidgets/Shiny `fooOutput()`/
+    # `renderFoo()` naming convention (e.g. plotOutput()/renderPlot()).
+    "R/shiny.R" = list(object_name_linter = c(50, 60)),
+    # `%||%` is an infix operator, not a regular identifier.
+    "R/utils.R" = list(object_name_linter = 1)
+  )

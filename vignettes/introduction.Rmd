@@ -1,0 +1,172 @@
+---
+title: "Introduction to treetable"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Introduction to treetable}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(treetable)
+```
+
+treetable aggregates a flat data frame into an arbitrary-depth hierarchy with
+subtotals at every level ([hierarchical_table()]), and renders that hierarchy
+as an interactive, expandable/collapsible tree table built on `htmlwidgets`
+([tree_table()]). Everything — row colors, fonts, column widths, number
+formats and the per-leaf detail modal — is configured from R, without
+touching CSS or JavaScript.
+
+## 1. Aggregating a hierarchy with `hierarchical_table()`
+
+`hierarchical_table()` takes a flat data frame, a vector of hierarchy columns
+(from most general to most specific), and a vector of numeric columns to sum
+at every level:
+
+```{r}
+sales <- tibble::tibble(
+  area     = c("Sales", "Sales", "Sales", "Costs", "Costs"),
+  category = c("Product A", "Product A", "Product B", "Payroll", "Rent"),
+  region   = c("North", "South", "North", "North", "South"),
+  amount   = c(1000, 750, 500, -1200, -300)
+)
+
+hierarchical_table(sales, levels = c("area", "category"), values = "amount")
+```
+
+The result is a long-format tibble: one row per node of the tree (`level_1`,
+..., `leaf`), with a subtotal already computed for every group and subgroup.
+Add as many levels as you need — `hierarchical_table()` recurses through
+however many columns you list in `levels`.
+
+## 2. `tree_table()` with the default theme
+
+`tree_table()` renders the same kind of hierarchy as an interactive tree
+table. Unlike `hierarchical_table()`, it expects one or two numeric columns
+*per period* you want to compare side by side (e.g. `Q1_budget`/`Q1_actual`),
+plus an `id` column identifying each leaf row:
+
+```{r}
+budget_vs_actual <- tibble::tibble(
+  area = c("Sales", "Sales", "Costs"),
+  category = c("Product A", "Product B", "Payroll"),
+  id = c("v-a", "v-b", "c-payroll"),
+  Q1_budget = c(1000, 500, 300), Q1_actual = c(950, 600, 280),
+  Q2_budget = c(1100, 550, 300), Q2_actual = c(1200, 500, 310)
+)
+
+tree_table(
+  budget_vs_actual,
+  levels = c("area", "category"),
+  columns = c("Q1", "Q2"),
+  suffix_a = "_budget", suffix_b = "_actual",
+  label_a = "Budget", label_b = "Actual"
+)
+```
+
+With two metrics per column, treetable automatically adds a `VAR %` column
+showing the percentage variance between them. Pass `suffix_b = NULL` to show
+a single metric per column instead, with no variance column.
+
+## 3. Custom theme and column formats
+
+Use [treetable_theme()] to restyle the table's colors, fonts and column
+widths, and [column_format()] to control how each metric is displayed
+(currency, percentage, decimals, thousands separator):
+
+```{r}
+tree_table(
+  budget_vs_actual,
+  levels = c("area", "category"),
+  columns = c("Q1", "Q2"),
+  suffix_a = "_budget", suffix_b = "_actual",
+  label_a = "Budget", label_b = "Actual",
+  theme = treetable_theme(
+    header_bg = "#102a43",
+    subtotal_bg = "#e3f2fd",
+    positive_var_color = "#1a7f37",
+    negative_var_color = "#cf222e"
+  ),
+  format_a = column_format(type = "currency", decimals = 0),
+  format_b = column_format(type = "currency", decimals = 0)
+)
+```
+
+## 4. Per-leaf detail modal in Shiny
+
+Passing a non-`NULL` `detail` to `tree_table()` shows a detail button on
+every leaf row. Clicking it sets the Shiny input
+`input[[paste0(output_id, "_detail")]]` to `list(id, nonce)`; call
+[show_detail_modal()] from an `observeEvent()` to react to it.
+
+### Automatic table
+
+[detail_table()] builds a modal that filters raw, pre-aggregation rows by
+leaf id and shows them as a table (using `reactable` when installed, falling
+back to `DT`, then to a plain HTML table):
+
+```{r, eval = FALSE}
+library(shiny)
+
+raw_movements <- tibble::tibble(
+  id = c("v-a", "v-a", "v-b", "c-payroll"),
+  date = as.Date(c("2025-01-05", "2025-01-19", "2025-01-11", "2025-01-31")),
+  amount = c(600, 400, 500, -300)
+)
+detail <- detail_table(raw_movements, id_col = "id")
+
+ui <- fluidPage(treetableOutput("tbl"))
+server <- function(input, output) {
+  output$tbl <- renderTreetable(
+    tree_table(
+      budget_vs_actual,
+      levels = c("area", "category"),
+      columns = c("Q1", "Q2"),
+      suffix_a = "_budget", suffix_b = "_actual",
+      detail = detail
+    )
+  )
+  observeEvent(input$tbl_detail, {
+    show_detail_modal(input$tbl_detail$id, raw_movements, detail)
+  })
+}
+shinyApp(ui, server)
+```
+
+### Custom UI
+
+Pass a `function(id, raw_data)` instead to render anything you want in the
+modal — your own table, a plot, free text:
+
+```{r, eval = FALSE}
+custom_detail <- function(id, raw_data) {
+  rows <- raw_data[raw_data$id == id, ]
+  tagList(
+    h4(paste("Movements for", id)),
+    renderTable(rows)
+  )
+}
+
+server <- function(input, output) {
+  output$tbl <- renderTreetable(
+    tree_table(
+      budget_vs_actual,
+      levels = c("area", "category"),
+      columns = c("Q1", "Q2"),
+      suffix_a = "_budget", suffix_b = "_actual",
+      detail = custom_detail
+    )
+  )
+  observeEvent(input$tbl_detail, {
+    show_detail_modal(input$tbl_detail$id, raw_movements, custom_detail)
+  })
+}
+```
