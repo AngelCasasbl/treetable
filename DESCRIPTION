@@ -2,7 +2,7 @@ Package: treetable
 Title: Configurable Hierarchical Tree Tables as an 'htmlwidgets' Widget
 Version: 0.1.0
 Authors@R:
-    person("Luis Angel", "Casas", , "luisangelcasasbl@gmail.com", role = c("aut", "cre"))
+    person("Luis Angel", "Casas", , "angelcasasbl@gmail.com", role = c("aut", "cre"))
 Description: Aggregate a flat data frame into an arbitrary-depth hierarchy
     (group > subgroup > item > ...) with subtotals at every level, and
     render it as an interactive, expandable/collapsible tree table built on

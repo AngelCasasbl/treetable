@@ -17,11 +17,11 @@ Useful links:
 
 }
 \author{
-\strong{Maintainer}: Luis Angel Casas \email{luisangelcasasbl@gmail.com}
+\strong{Maintainer}: Luis Angel Casas \email{angelcasasbl@gmail.com}
 
 Authors:
 \itemize{
-  \item Luis Angel Casas \email{luisangelcasasbl@gmail.com}
+  \item Luis Angel Casas \email{angelcasasbl@gmail.com}
 }
 
 }
