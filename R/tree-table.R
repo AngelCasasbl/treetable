@@ -1,27 +1,28 @@
 #' Render a hierarchy as an interactive tree table
 #'
 #' Builds an `htmlwidgets` widget that renders `data` as an expandable/
-#' collapsible tree table (grouped columns with one or two metrics, automatic
-#' percentage variance when there are two), usable both inside and outside
-#' Shiny.
+#' collapsible tree table, usable both inside and outside Shiny.
 #'
 #' `data` must be a flat data frame (one row per full combination of levels,
 #' as for [hierarchical_table()]) with:
 #' * One column per hierarchy level in `levels`, from most general to most
 #'   specific (e.g. `c("group", "subgroup", "item")`).
-#' * For every entry in `columns` (the "periods" compared side by side:
-#'   months, quarters, branches, years, ...), one or two numeric columns:
-#'   `<value><suffix_a>` and, to compare two metrics (with automatic percent
-#'   variance), also `<value><suffix_b>`. E.g. with
-#'   `columns = c("2025-01", "2025-02")`, `suffix_a = "_actual"`,
-#'   `suffix_b = "_budget"`, the widget looks for `"2025-01_actual"`,
-#'   `"2025-01_budget"`, `"2025-02_actual"`, `"2025-02_budget"`.
+#' * The source columns named by every [col_field()] across `columns`
+#'   (`col_field()`'s `value`) — no shared naming pattern required between
+#'   them.
 #' * A column uniquely identifying every leaf row (`"id"` by default; change
 #'   it with `id_col`), used for the per-row detail button.
 #'
-#' If you only have a single metric per column (no comparison), leave
-#' `suffix_b = NULL`: each column then shows one number, with no percent
-#' variance.
+#' `columns` is a list of [col_spec()] groups, reactable-style: each group
+#' has a header `name` and one or more [col_field()]s underneath it, every
+#' one with its own source column, aggregation, display format, and
+#' optionally a custom cell renderer (`col_field()`'s `cell`) for full
+#' control over a cell's HTML — colors, badges, icons, anything
+#' `htmltools` can build. There is no automatic comparison/percent-variance
+#' column: with more than one field per group, every field just renders as
+#' its own plain column; add one yourself (another [col_field()], computed
+#' in `data`) if you want it, so you control what it means and how (or
+#' whether) it's styled.
 #'
 #' `tree_table()` can be called directly in the console or an R
 #' Markdown/Quarto chunk (auto-printed like any `htmlwidgets` widget), or
@@ -30,20 +31,10 @@
 #' @param data A flat data frame (see Details).
 #' @param levels Character vector of hierarchy columns, from most general to
 #'   most specific (e.g. `c("group", "subgroup", "item")`).
-#' @param columns Character vector of values to compare side by side (months,
-#'   branches, years, ...). Each expects `<value><suffix_a>` (and
-#'   `<value><suffix_b>` if applicable) columns in `data`.
-#' @param suffix_a Suffix of the first metric (e.g. `"_actual"`).
-#' @param suffix_b Suffix of the second metric, optional. If `NULL`, each
-#'   column shows only `label_a`, with no comparison or percent variance.
-#' @param label_a,label_b Column-header titles for each metric.
-#' @param column_labels Labels to display per column (defaults to `columns`
-#'   itself).
+#' @param columns A list of [col_spec()] objects, from left to right.
 #' @param id_col Column identifying every leaf row (detail button).
 #' @param theme A [treetable_theme()] object controlling colors, fonts and
 #'   column widths.
-#' @param format_a,format_b [column_format()] objects controlling how the
-#'   first/second metric is displayed.
 #' @param detail Controls the per-leaf detail button: `NULL` (default)
 #'   disables it; otherwise pass a [detail_table()] object or a custom
 #'   `function(id, raw_data)` (see [show_detail_modal()]). `tree_table()`
@@ -53,6 +44,11 @@
 #'   when that level should be skipped for that subset of data (e.g. when a
 #'   subgroup has no real subdivision at that level). By default no level is
 #'   skipped.
+#' @param lang Language for the widget's own UI text (the expand/collapse
+#'   toggle button, the detail-button tooltip, the "no data" message):
+#'   `"en"`, `"es"`, or `NULL` (default) to auto-detect from the viewer's
+#'   browser, falling back to English. This does not translate anything you
+#'   provide yourself (column/field names, node labels).
 #' @param width,height Width/height forwarded to `htmlwidgets::createWidget()`
 #'   (overall widget sizing; use `theme` for column widths).
 #' @param element_id Optional widget DOM id, forwarded to
@@ -69,26 +65,74 @@
 #' tree_table(
 #'   data,
 #'   levels = c("area", "category"),
-#'   columns = c("Q1", "Q2"),
-#'   suffix_a = "_budget", suffix_b = "_actual",
-#'   label_a = "Budget", label_b = "Actual"
+#'   columns = list(
+#'     col_spec(
+#'       "Q1",
+#'       col_field("Q1_budget", label = "Budget", format = column_format(type = "currency")),
+#'       col_field("Q1_actual", label = "Actual", format = column_format(type = "currency"))
+#'     ),
+#'     col_spec(
+#'       "Q2",
+#'       col_field("Q2_budget", label = "Budget", format = column_format(type = "currency")),
+#'       col_field("Q2_actual", label = "Actual", format = column_format(type = "currency"))
+#'     )
+#'   )
+#' )
+#'
+#' # A parent node can show the average of its leaf rows instead of their
+#' # sum, e.g. a student's grade as the mean of their subjects' grades - and
+#' # different columns can pull from unrelated source columns/aggregations/
+#' # formats, with no shared naming pattern required between them.
+#' mixed <- tibble::tibble(
+#'   student = c("Ana", "Ana", "Leo", "Leo"),
+#'   subject = c("Math", "Art", "Math", "Art"),
+#'   id = c("ana-math", "ana-art", "leo-math", "leo-art"),
+#'   Grade_T1 = c(90, 100, 80, 95),
+#'   attendance_days = c(18, 20, 15, 19)
+#' )
+#' tree_table(
+#'   mixed,
+#'   levels = c("student", "subject"),
+#'   columns = list(
+#'     col_spec("Grade", col_field("Grade_T1", aggregate = "mean")),
+#'     col_spec(
+#'       "Attendance",
+#'       col_field("attendance_days", format = column_format(type = "number", decimals = 0))
+#'     )
+#'   )
+#' )
+#'
+#' # Custom cell rendering, reactable-style: color a grade by how good it is.
+#' tree_table(
+#'   mixed,
+#'   levels = c("student", "subject"),
+#'   columns = list(
+#'     col_spec(
+#'       "Grade",
+#'       col_field(
+#'         "Grade_T1", aggregate = "mean",
+#'         cell = function(value, row) {
+#'           if (is.na(value)) return(NULL)
+#'           color <- if (value >= 90) "#1a7f37" else if (value >= 70) "#9a6700" else "#cf222e"
+#'           htmltools::tags$span(
+#'             style = paste0("color:", color, ";font-weight:600"),
+#'             sprintf("%.1f", value)
+#'           )
+#'         }
+#'       )
+#'     )
+#'   )
 #' )
 #' @export
 tree_table <- function(
   data,
   levels,
   columns,
-  suffix_a,
-  suffix_b = NULL,
-  label_a = "Value A",
-  label_b = "Value B",
-  column_labels = NULL,
   id_col = "id",
   theme = treetable_theme(),
-  format_a = column_format(),
-  format_b = column_format(),
   detail = NULL,
   skip_level = NULL,
+  lang = NULL,
   width = NULL,
   height = NULL,
   element_id = NULL
@@ -96,34 +140,25 @@ tree_table <- function(
   if (!inherits(theme, "treetable_theme")) {
     cli::cli_abort("{.arg theme} must be created with {.fn treetable_theme}.")
   }
-  if (!inherits(format_a, "treetable_format")) {
-    cli::cli_abort("{.arg format_a} must be created with {.fn column_format}.")
-  }
-  if (!is.null(format_b) && !inherits(format_b, "treetable_format")) {
-    cli::cli_abort("{.arg format_b} must be created with {.fn column_format}.")
+  if (!is.null(lang) && !(rlang::is_scalar_character(lang) && lang %in% c("en", "es"))) {
+    cli::cli_abort('{.arg lang} must be {.code NULL}, {.val en}, or {.val es}.')
   }
 
   payload <- build_tree_payload(
     data = data,
     levels = levels,
     columns = columns,
-    suffix_a = suffix_a,
-    suffix_b = suffix_b,
-    label_a = label_a,
-    label_b = label_b,
-    column_labels = column_labels,
     id_col = id_col,
     skip_level = skip_level
   )
 
   x <- list(
-    columns = payload$columns,
-    metrics = payload$metrics,
+    column_groups = payload$column_groups,
+    subcolumns = payload$subcolumns,
     tree = payload$tree,
     theme = unclass(theme),
-    format_a = unclass(format_a),
-    format_b = if (!is.null(suffix_b)) unclass(format_b) else NULL,
-    detail_enabled = !is.null(detail)
+    detail_enabled = !is.null(detail),
+    lang = lang
   )
 
   htmlwidgets::createWidget(
@@ -144,30 +179,43 @@ tree_table <- function(
   )
 }
 
-# Internal: builds the nested-tree payload (`list(columns, metrics, tree)`)
-# consumed by the JS renderer, from a flat data frame and hierarchy spec.
+# Internal: builds the nested-tree payload (`list(column_groups, subcolumns,
+# tree)`) consumed by the JS renderer, from a flat data frame and a list of
+# col_spec() column groups.
 build_tree_payload <- function(
   data,
   levels,
   columns,
-  suffix_a,
-  suffix_b = NULL,
-  label_a = "Value A",
-  label_b = "Value B",
-  column_labels = NULL,
   id_col = "id",
   skip_level = NULL
 ) {
   abort_missing_columns(data, c(levels, id_col))
-  if (is.null(column_labels)) column_labels <- columns
-  has_b <- !is.null(suffix_b)
 
-  build_series <- function(sub) {
-    lapply(columns, function(col) {
-      value <- list(a = sum(sub[[paste0(col, suffix_a)]], na.rm = TRUE))
-      if (has_b) value$b <- sum(sub[[paste0(col, suffix_b)]], na.rm = TRUE)
-      value
-    })
+  if (!is_col_spec_list(columns)) {
+    cli::cli_abort("{.arg columns} must be a list of {.fn col_spec} objects.")
+  }
+
+  # Flattened across every group's fields; unname() guards against a JSON
+  # array silently turning into a JSON object if a caller ever names an
+  # argument in col_spec()'s `...` (e.g. `col_spec("Q1", a = col_field(...))`).
+  fields <- unname(unlist(lapply(columns, function(cs) cs$fields), recursive = FALSE))
+  abort_missing_columns(data, vapply(fields, `[[`, character(1), "value"))
+
+  column_groups <- unname(lapply(columns, function(cs) {
+    list(name = cs$name, span = length(cs$fields))
+  }))
+  subcolumns <- unname(lapply(fields, function(f) {
+    list(label = f$label %||% "", format = unclass(f$format))
+  }))
+
+  build_values <- function(sub) {
+    unname(lapply(fields, function(f) aggregate_fun(f$aggregate)(sub[[f$value]])))
+  }
+
+  build_renders <- function(values, label, is_leaf) {
+    row <- list(label = label, is_leaf = is_leaf)
+    renders <- unname(Map(function(f, val) render_cell(f$cell, val, row), fields, values))
+    if (all(vapply(renders, is.null, logical(1)))) NULL else renders
   }
 
   build_level <- function(sub_data, remaining_levels) {
@@ -187,8 +235,12 @@ build_tree_payload <- function(
 
     lapply(order, function(value) {
       sub <- sub_data[sub_data[[level]] == value, , drop = FALSE]
-      node <- list(label = as.character(value), series = build_series(sub))
+      values <- build_values(sub)
       children <- if (length(rest) > 0) build_level(sub, rest) else list()
+      is_leaf <- length(children) == 0
+      node <- list(label = as.character(value), series = values)
+      renders <- build_renders(values, node$label, is_leaf)
+      if (!is.null(renders)) node$renders <- renders
       if (length(children) > 0) {
         node$children <- children
       } else {
@@ -199,8 +251,8 @@ build_tree_payload <- function(
   }
 
   list(
-    columns = as.list(as.character(column_labels)),
-    metrics = if (has_b) list(label_a, label_b) else list(label_a),
+    column_groups = column_groups,
+    subcolumns = subcolumns,
     tree = build_level(data, levels)
   )
 }

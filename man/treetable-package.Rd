@@ -6,7 +6,7 @@
 \alias{treetable-package}
 \title{treetable: Configurable Hierarchical Tree Tables as an 'htmlwidgets' Widget}
 \description{
-Aggregate a flat data frame into an arbitrary-depth hierarchy (group > subgroup > item > ...) with subtotals at every level, and render it as an interactive, expandable/collapsible tree table built on 'htmlwidgets'. Columns can compare one or two metrics side by side (with automatic percentage variance), row colors and column number formats are fully configurable from R, and each leaf row can open a detail modal backed by a table or a user-supplied 'Shiny' UI. Works the same way inside and outside 'Shiny' (console, 'R Markdown'/'Quarto', 'Shiny' apps).
+Aggregate a flat data frame into an arbitrary-depth hierarchy (group > subgroup > item > ...) with subtotals at every level, and render it as an interactive, expandable/collapsible tree table built on 'htmlwidgets'. Columns can compare one or two metrics side by side, row colors and column number formats are fully configurable from R, and each leaf row can open a detail modal backed by a table or a user-supplied 'Shiny' UI. Works the same way inside and outside 'Shiny' (console, 'R Markdown'/'Quarto', 'Shiny' apps).
 }
 \seealso{
 Useful links:

@@ -61,12 +61,19 @@ budget_vs_actual <- tibble::tibble(
 tree_table(
   budget_vs_actual,
   levels = c("area", "category"),
-  columns = c("Q1", "Q2"),
-  suffix_a = "_budget", suffix_b = "_actual",
-  label_a = "Budget", label_b = "Actual",
-  theme = treetable_theme(header_bg = "#102a43"),
-  format_a = column_format(type = "currency", decimals = 0),
-  format_b = column_format(type = "currency", decimals = 0)
+  columns = list(
+    col_spec(
+      "Q1",
+      col_field("Q1_budget", label = "Budget", format = column_format(type = "currency", decimals = 0)),
+      col_field("Q1_actual", label = "Actual", format = column_format(type = "currency", decimals = 0))
+    ),
+    col_spec(
+      "Q2",
+      col_field("Q2_budget", label = "Budget", format = column_format(type = "currency", decimals = 0)),
+      col_field("Q2_actual", label = "Actual", format = column_format(type = "currency", decimals = 0))
+    )
+  ),
+  theme = treetable_theme(header_bg = "#102a43")
 )
 ```
 

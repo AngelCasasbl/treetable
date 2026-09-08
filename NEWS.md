@@ -4,8 +4,7 @@
 * `hierarchical_table()`: aggregate a flat data frame into an arbitrary-depth
   hierarchy with subtotals at every level.
 * `tree_table()`: interactive, expandable/collapsible tree table
-  `htmlwidgets` widget, with one or two metrics per column and automatic
-  percentage variance.
+  `htmlwidgets` widget, with one or two metrics per column.
 * `treetable_theme()` and `column_format()`: configure row colors, fonts,
   column widths and number formats without touching CSS/JS.
 * `detail_table()` and `show_detail_modal()`: optional per-leaf detail modal,

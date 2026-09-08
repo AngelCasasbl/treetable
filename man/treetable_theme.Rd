@@ -10,9 +10,6 @@ treetable_theme(
   subtotal_bg = "#eef6ff",
   subtotal_text = "#1d1f20",
   leaf_hover_bg = "#f7fafc",
-  positive_var_color = "#3f7a52",
-  negative_var_color = "#b1483f",
-  neutral_var_color = "#7a7a7d",
   font_family = "Inter, 'Segoe UI', sans-serif",
   font_size = "13px",
   label_column_width = "280px",
@@ -27,10 +24,6 @@ header.}
 (any row with children, other than the top level).}
 
 \item{leaf_hover_bg}{Background color of a leaf row on mouse hover.}
-
-\item{positive_var_color, negative_var_color, neutral_var_color}{Text color
-used for the automatic percentage-variance column when it is positive,
-negative, or within the neutral band, respectively.}
 
 \item{font_family, font_size}{CSS font family and base font size for the
 whole table.}
@@ -47,5 +40,5 @@ column widths of a \code{\link[=tree_table]{tree_table()}} widget, so callers ca
 table entirely from R without touching CSS or JavaScript.
 }
 \examples{
-theme <- treetable_theme(header_bg = "#102a43", positive_var_color = "#1a7f37")
+theme <- treetable_theme(header_bg = "#102a43", subtotal_bg = "#e3f2fd")
 }

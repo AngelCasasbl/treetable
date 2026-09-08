@@ -1,27 +1,60 @@
 /*
- * treetable: expandable/collapsible tree table (grouped columns with one or
- * two metrics and automatic percent variance when there are two), driven
- * entirely from R via tree_table()/treetable_theme()/column_format().
+ * treetable: expandable/collapsible tree table with reactable-style
+ * columns, driven entirely from R via
+ * tree_table()/col_spec()/col_field()/treetable_theme()/column_format().
  *
  * payload (x) = {
- *   columns: ["Q1", "Q2", ...],
- *   metrics: ["Budget", "Actual"],  // 1 or 2 elements
- *   tree: [ { label, series: [{a, b?}, ...], children?, id? }, ... ],
+ *   column_groups: [ { name, span }, ... ],  // one per col_spec(); span =
+ *     number of col_field()s in that group (how many cells it covers)
+ *   subcolumns: [ { label, format }, ... ],  // FLAT, one per col_field()
+ *     across every group, in order; format = { type, decimals, symbol,
+ *     thousands_sep }
+ *   tree: [ { label, series: [value, ...], renders: [render?, ...]?,
+ *             children?, id? }, ... ],
+ *     // series/renders are parallel to `subcolumns` (flat, same length);
+ *     // renders[i], if present and non-null, is either { html: "<...>" }
+ *     // (raw HTML, from an htmltools tag/HTML() a col_field()'s `cell`
+ *     // returned) or { text: "..." } (plain, escaped text overriding the
+ *     // formatted value) - otherwise series[i] is rendered via
+ *     // subcolumns[i].format
  *   theme: { header_bg, header_text, subtotal_bg, subtotal_text,
- *            leaf_hover_bg, positive_var_color, negative_var_color,
- *            neutral_var_color, font_family, font_size,
+ *            leaf_hover_bg, font_family, font_size,
  *            label_column_width, value_column_width },
- *   format_a: { type, decimals, symbol, thousands_sep },
- *   format_b: same shape as format_a, or null,
- *   detail_enabled: true/false
+ *   detail_enabled: true/false,
+ *   lang: "en" | "es" | null  // null/unset auto-detects from the browser
  * }
- * If `metrics` has a single element, each column shows one number
- * (series.a) and no percent variance is computed.
+ * A group with a single field renders as one plain column under its name.
+ * A group with several fields renders its name spanning a sub-header row
+ * with one cell per field (that field's label) - there is no automatic
+ * comparison/percentage between them.
  */
 (function () {
   "use strict";
 
   var STYLE_ID = "treetable-style";
+
+  var I18N = {
+    en: {
+      expand_all: "Expand all",
+      collapse_all: "Collapse all",
+      detail: "View detail",
+      empty: "No data to display.",
+    },
+    es: {
+      expand_all: "Expandir todo",
+      collapse_all: "Colapsar todo",
+      detail: "Ver detalle",
+      empty: "No hay datos para mostrar.",
+    },
+  };
+
+  // Explicit `lang` ("en"/"es") wins; otherwise auto-detect from the
+  // browser, defaulting to English for anything that isn't Spanish.
+  function resolveStrings(lang) {
+    if (lang === "es" || lang === "en") return I18N[lang];
+    var nav = ((navigator.language || navigator.userLanguage || "") + "").toLowerCase();
+    return nav.indexOf("es") === 0 ? I18N.es : I18N.en;
+  }
 
   function ensureStyle() {
     if (document.getElementById(STYLE_ID)) return;
@@ -56,7 +89,6 @@
       ".tt-toggle{cursor:pointer;display:inline-block;width:14px;transition:transform .12s ease}" +
       ".tt-toggle.tt-open{transform:rotate(90deg)}" +
       ".tt-num{text-align:right;min-width:var(--tt-value-width,88px);font-variant-numeric:tabular-nums}" +
-      ".tt-var{font-weight:600}" +
       ".tt-detail-btn{border:none;background:transparent;cursor:pointer;padding:2px 4px;color:#597ea3;font-size:13px}" +
       ".tt-detail-btn:hover{color:#1d2d3d}" +
       ".tt-empty{padding:24px;color:#7a7a7d;text-align:center}" +
@@ -101,12 +133,15 @@
     return out;
   }
 
-  function varColor(pct, theme) {
-    theme = theme || {};
-    if (pct === null || pct === undefined || isNaN(pct)) return theme.neutral_var_color || "#7a7a7d";
-    if (pct > 5) return theme.positive_var_color || "#3f7a52";
-    if (pct < -5) return theme.negative_var_color || "#b1483f";
-    return theme.neutral_var_color || "#7a7a7d";
+  // `render` is a col_field()'s optional per-cell override for this node
+  // (from R's render_cell()): { html: "<...>" } for raw HTML (already
+  // trusted - it came from an htmltools tag/HTML() built in R), { text:
+  // "..." } for plain text (still escaped here), or null/undefined to fall
+  // back to the default, format-based rendering of `value`.
+  function renderCell(value, render, format) {
+    if (render && typeof render.html === "string") return render.html;
+    if (render && typeof render.text === "string") return escapeHtml(render.text);
+    return formatValue(value, format);
   }
 
   function applyThemeVars(el, theme) {
@@ -117,9 +152,6 @@
       subtotal_bg: "--tt-subtotal-bg",
       subtotal_text: "--tt-subtotal-text",
       leaf_hover_bg: "--tt-leaf-hover-bg",
-      positive_var_color: "--tt-positive-var",
-      negative_var_color: "--tt-negative-var",
-      neutral_var_color: "--tt-neutral-var",
       font_family: "--tt-font-family",
       font_size: "--tt-font-size",
       label_column_width: "--tt-label-width",
@@ -171,6 +203,17 @@
     });
   }
 
+  // Whether any node in the tree is currently collapsed, used to decide
+  // what the single expand/collapse toggle button should do (and say) next.
+  function anyCollapsed(nodes, path, collapsed) {
+    return (nodes || []).some(function (node, i) {
+      var key = path + "/" + i;
+      var hasChildren = !!(node.children && node.children.length);
+      if (!hasChildren) return false;
+      return collapsed[key] || anyCollapsed(node.children, key, collapsed);
+    });
+  }
+
   // render() redraws the whole widget on every toggle; collapse state lives
   // on the DOM element itself so it survives re-renders triggered by Shiny
   // (new data resets the state).
@@ -186,47 +229,73 @@
     }
     el.__ttCollapsed = collapsed;
 
-    var columns = x.columns || [];
-    var metrics = x.metrics || ["Value"];
-    var twoMetrics = metrics.length >= 2;
+    var t = resolveStrings(x.lang);
+    var columnGroups = x.column_groups || [];
+    var subcolumns = x.subcolumns || [];
     var tree = x.tree || [];
-    var formatA = x.format_a || { type: "number", decimals: 0, thousands_sep: true };
-    var formatB = x.format_b || formatA;
     var detailEnabled = !!x.detail_enabled;
 
     if (!tree.length) {
-      el.innerHTML = '<div class="tt-empty">No data to display.</div>';
+      el.innerHTML = '<div class="tt-empty">' + escapeHtml(t.empty) + "</div>";
       return;
     }
 
     var rows = flatten(tree, 0, collapsed, "r");
-    var colspanGroup = twoMetrics ? 3 : 1;
+    // A group's own sub-header row only earns its keep when at least one
+    // group has more than one field to tell apart under its header (e.g.
+    // "Budget"/"Actual"); with every group a single field, it would just
+    // repeat the group name for no reason, so that row is skipped entirely.
+    var anyMultiField = columnGroups.some(function (g) {
+      return g.span > 1;
+    });
+    var headerRows = anyMultiField ? 2 : 1;
+    // Single toggle button: its label always names the action a click will
+    // perform next (expand everything while something is collapsed,
+    // otherwise collapse everything).
+    var somethingCollapsed = anyCollapsed(tree, "r", collapsed);
+    var toggleLabel = somethingCollapsed ? t.expand_all : t.collapse_all;
+    var toggleIcon = somethingCollapsed ? "&#8645;" : "&#8646;";
     var html = [
       '<div class="tt-wrap">',
       '<table class="tt-table"><thead>',
-      '<tr><th class="tt-label-head" rowspan="2"><div class="tt-corner-actions">' +
-        '<button type="button" class="tt-corner-btn" data-expand-all>&#8645; Expand all</button>' +
-        '<button type="button" class="tt-corner-btn" data-collapse-all>&#8646; Collapse all</button>' +
+      '<tr><th class="tt-label-head" rowspan="' + headerRows + '"><div class="tt-corner-actions">' +
+        '<button type="button" class="tt-corner-btn" data-toggle-all>' +
+        toggleIcon +
+        " " +
+        escapeHtml(toggleLabel) +
+        "</button>" +
         "</div></th>",
     ];
-    columns.forEach(function (c) {
-      html.push('<th class="tt-head-col" colspan="' + colspanGroup + '">' + escapeHtml(c) + "</th>");
+    columnGroups.forEach(function (g) {
+      // A single-field group has no sub-header cell reserved for it, so its
+      // own header spans both rows when the table has two; a multi-field
+      // group's header stays on row 1, leaving room for its field labels
+      // on row 2.
+      var rowspan = anyMultiField && g.span === 1 ? headerRows : 1;
+      html.push(
+        '<th class="tt-head-col" colspan="' + g.span + '" rowspan="' + rowspan + '">' +
+          escapeHtml(g.name) +
+          "</th>"
+      );
     });
-    html.push("</tr><tr>");
-    columns.forEach(function () {
-      if (twoMetrics) {
-        html.push(
-          '<th class="tt-head-sub">' +
-            escapeHtml(String(metrics[0]).toUpperCase()) +
-            '</th><th class="tt-head-sub">' +
-            escapeHtml(String(metrics[1]).toUpperCase()) +
-            '</th><th class="tt-head-sub">VAR %</th>'
-        );
-      } else {
-        html.push('<th class="tt-head-sub">' + escapeHtml(String(metrics[0]).toUpperCase()) + "</th>");
-      }
-    });
-    html.push("</tr></thead><tbody>");
+    html.push("</tr>");
+    if (anyMultiField) {
+      html.push("<tr>");
+      var idx = 0;
+      columnGroups.forEach(function (g) {
+        if (g.span > 1) {
+          for (var k = 0; k < g.span; k++) {
+            var sub = subcolumns[idx] || {};
+            html.push('<th class="tt-head-sub">' + escapeHtml(String(sub.label || "").toUpperCase()) + "</th>");
+            idx++;
+          }
+        } else {
+          idx += g.span;
+        }
+      });
+      html.push("</tr>");
+    }
+    html.push("</thead><tbody>");
 
     rows.forEach(function (r) {
       var node = r.node;
@@ -242,34 +311,25 @@
         html.push(
           '<button type="button" class="tt-detail-btn" data-detail="' +
             escapeHtml(node.id) +
-            '" title="View detail">&#128269;</button> '
+            '" title="' +
+            escapeHtml(t.detail) +
+            '">&#128269;</button> '
         );
       }
       html.push(escapeHtml(node.label) + "</td>");
-      (node.series || []).forEach(function (s) {
-        var a = s ? s.a : null;
-        html.push('<td class="tt-num">' + formatValue(a, formatA) + "</td>");
-        if (twoMetrics) {
-          var b = s ? s.b : null;
-          var pct = !a ? null : ((b - a) / Math.abs(a)) * 100;
-          html.push('<td class="tt-num">' + formatValue(b, formatB) + "</td>");
-          html.push(
-            '<td class="tt-num tt-var" style="color:' +
-              varColor(pct, x.theme) +
-              '">' +
-              (pct === null || isNaN(pct) ? "--" : pct.toFixed(2) + "%") +
-              "</td>"
-          );
-        }
+      (node.series || []).forEach(function (value, i) {
+        var fmt = (subcolumns[i] && subcolumns[i].format) || { type: "number", decimals: 0, thousands_sep: true };
+        var renderOverride = node.renders ? node.renders[i] : null;
+        html.push('<td class="tt-num">' + renderCell(value, renderOverride, fmt) + "</td>");
       });
       html.push("</tr>");
     });
     html.push("</tbody></table></div>");
     el.innerHTML = html.join("");
 
-    Array.prototype.forEach.call(el.querySelectorAll("[data-toggle]"), function (t) {
-      t.addEventListener("click", function () {
-        var key = t.getAttribute("data-toggle");
+    Array.prototype.forEach.call(el.querySelectorAll("[data-toggle]"), function (toggleEl) {
+      toggleEl.addEventListener("click", function () {
+        var key = toggleEl.getAttribute("data-toggle");
         collapsed[key] = !collapsed[key];
         render(el, x, onDetail);
       });
@@ -280,17 +340,12 @@
       });
     });
 
-    var expandAllBtn = el.querySelector("[data-expand-all]");
-    if (expandAllBtn) {
-      expandAllBtn.addEventListener("click", function () {
-        setAllCollapsed(tree, "r", collapsed, false);
-        render(el, x, onDetail);
-      });
-    }
-    var collapseAllBtn = el.querySelector("[data-collapse-all]");
-    if (collapseAllBtn) {
-      collapseAllBtn.addEventListener("click", function () {
-        setAllCollapsed(tree, "r", collapsed, true);
+    var toggleAllBtn = el.querySelector("[data-toggle-all]");
+    if (toggleAllBtn) {
+      toggleAllBtn.addEventListener("click", function () {
+        // Mirrors the label: expand everything if anything is collapsed,
+        // otherwise collapse everything.
+        setAllCollapsed(tree, "r", collapsed, !somethingCollapsed);
         render(el, x, onDetail);
       });
     }

@@ -8,17 +8,11 @@ tree_table(
   data,
   levels,
   columns,
-  suffix_a,
-  suffix_b = NULL,
-  label_a = "Value A",
-  label_b = "Value B",
-  column_labels = NULL,
   id_col = "id",
   theme = treetable_theme(),
-  format_a = column_format(),
-  format_b = column_format(),
   detail = NULL,
   skip_level = NULL,
+  lang = NULL,
   width = NULL,
   height = NULL,
   element_id = NULL
@@ -30,27 +24,12 @@ tree_table(
 \item{levels}{Character vector of hierarchy columns, from most general to
 most specific (e.g. \code{c("group", "subgroup", "item")}).}
 
-\item{columns}{Character vector of values to compare side by side (months,
-branches, years, ...). Each expects \verb{<value><suffix_a>} (and
-\verb{<value><suffix_b>} if applicable) columns in \code{data}.}
-
-\item{suffix_a}{Suffix of the first metric (e.g. \code{"_actual"}).}
-
-\item{suffix_b}{Suffix of the second metric, optional. If \code{NULL}, each
-column shows only \code{label_a}, with no comparison or percent variance.}
-
-\item{label_a, label_b}{Column-header titles for each metric.}
-
-\item{column_labels}{Labels to display per column (defaults to \code{columns}
-itself).}
+\item{columns}{A list of \code{\link[=col_spec]{col_spec()}} objects, from left to right.}
 
 \item{id_col}{Column identifying every leaf row (detail button).}
 
 \item{theme}{A \code{\link[=treetable_theme]{treetable_theme()}} object controlling colors, fonts and
 column widths.}
-
-\item{format_a, format_b}{\code{\link[=column_format]{column_format()}} objects controlling how the
-first/second metric is displayed.}
 
 \item{detail}{Controls the per-leaf detail button: \code{NULL} (default)
 disables it; otherwise pass a \code{\link[=detail_table]{detail_table()}} object or a custom
@@ -63,6 +42,12 @@ when that level should be skipped for that subset of data (e.g. when a
 subgroup has no real subdivision at that level). By default no level is
 skipped.}
 
+\item{lang}{Language for the widget's own UI text (the expand/collapse
+toggle button, the detail-button tooltip, the "no data" message):
+\code{"en"}, \code{"es"}, or \code{NULL} (default) to auto-detect from the viewer's
+browser, falling back to English. This does not translate anything you
+provide yourself (column/field names, node labels).}
+
 \item{width, height}{Width/height forwarded to \code{htmlwidgets::createWidget()}
 (overall widget sizing; use \code{theme} for column widths).}
 
@@ -74,9 +59,7 @@ An \code{htmlwidgets} widget of class \code{treetable}.
 }
 \description{
 Builds an \code{htmlwidgets} widget that renders \code{data} as an expandable/
-collapsible tree table (grouped columns with one or two metrics, automatic
-percentage variance when there are two), usable both inside and outside
-Shiny.
+collapsible tree table, usable both inside and outside Shiny.
 }
 \details{
 \code{data} must be a flat data frame (one row per full combination of levels,
@@ -84,20 +67,23 @@ as for \code{\link[=hierarchical_table]{hierarchical_table()}}) with:
 \itemize{
 \item One column per hierarchy level in \code{levels}, from most general to most
 specific (e.g. \code{c("group", "subgroup", "item")}).
-\item For every entry in \code{columns} (the "periods" compared side by side:
-months, quarters, branches, years, ...), one or two numeric columns:
-\verb{<value><suffix_a>} and, to compare two metrics (with automatic percent
-variance), also \verb{<value><suffix_b>}. E.g. with
-\code{columns = c("2025-01", "2025-02")}, \code{suffix_a = "_actual"},
-\code{suffix_b = "_budget"}, the widget looks for \code{"2025-01_actual"},
-\code{"2025-01_budget"}, \code{"2025-02_actual"}, \code{"2025-02_budget"}.
+\item The source columns named by every \code{\link[=col_field]{col_field()}} across \code{columns}
+(\code{col_field()}'s \code{value}) — no shared naming pattern required between
+them.
 \item A column uniquely identifying every leaf row (\code{"id"} by default; change
 it with \code{id_col}), used for the per-row detail button.
 }
 
-If you only have a single metric per column (no comparison), leave
-\code{suffix_b = NULL}: each column then shows one number, with no percent
-variance.
+\code{columns} is a list of \code{\link[=col_spec]{col_spec()}} groups, reactable-style: each group
+has a header \code{name} and one or more \code{\link[=col_field]{col_field()}}s underneath it, every
+one with its own source column, aggregation, display format, and
+optionally a custom cell renderer (\code{col_field()}'s \code{cell}) for full
+control over a cell's HTML — colors, badges, icons, anything
+\code{htmltools} can build. There is no automatic comparison/percent-variance
+column: with more than one field per group, every field just renders as
+its own plain column; add one yourself (another \code{\link[=col_field]{col_field()}}, computed
+in \code{data}) if you want it, so you control what it means and how (or
+whether) it's styled.
 
 \code{tree_table()} can be called directly in the console or an R
 Markdown/Quarto chunk (auto-printed like any \code{htmlwidgets} widget), or
@@ -114,8 +100,62 @@ data <- tibble::tibble(
 tree_table(
   data,
   levels = c("area", "category"),
-  columns = c("Q1", "Q2"),
-  suffix_a = "_budget", suffix_b = "_actual",
-  label_a = "Budget", label_b = "Actual"
+  columns = list(
+    col_spec(
+      "Q1",
+      col_field("Q1_budget", label = "Budget", format = column_format(type = "currency")),
+      col_field("Q1_actual", label = "Actual", format = column_format(type = "currency"))
+    ),
+    col_spec(
+      "Q2",
+      col_field("Q2_budget", label = "Budget", format = column_format(type = "currency")),
+      col_field("Q2_actual", label = "Actual", format = column_format(type = "currency"))
+    )
+  )
+)
+
+# A parent node can show the average of its leaf rows instead of their
+# sum, e.g. a student's grade as the mean of their subjects' grades - and
+# different columns can pull from unrelated source columns/aggregations/
+# formats, with no shared naming pattern required between them.
+mixed <- tibble::tibble(
+  student = c("Ana", "Ana", "Leo", "Leo"),
+  subject = c("Math", "Art", "Math", "Art"),
+  id = c("ana-math", "ana-art", "leo-math", "leo-art"),
+  Grade_T1 = c(90, 100, 80, 95),
+  attendance_days = c(18, 20, 15, 19)
+)
+tree_table(
+  mixed,
+  levels = c("student", "subject"),
+  columns = list(
+    col_spec("Grade", col_field("Grade_T1", aggregate = "mean")),
+    col_spec(
+      "Attendance",
+      col_field("attendance_days", format = column_format(type = "number", decimals = 0))
+    )
+  )
+)
+
+# Custom cell rendering, reactable-style: color a grade by how good it is.
+tree_table(
+  mixed,
+  levels = c("student", "subject"),
+  columns = list(
+    col_spec(
+      "Grade",
+      col_field(
+        "Grade_T1", aggregate = "mean",
+        cell = function(value, row) {
+          if (is.na(value)) return(NULL)
+          color <- if (value >= 90) "#1a7f37" else if (value >= 70) "#9a6700" else "#cf222e"
+          htmltools::tags$span(
+            style = paste0("color:", color, ";font-weight:600"),
+            sprintf("\%.1f", value)
+          )
+        }
+      )
+    )
+  )
 )
 }

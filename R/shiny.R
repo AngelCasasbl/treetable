@@ -35,8 +35,13 @@
 #'       tree_table(
 #'         data,
 #'         levels = c("area", "category"),
-#'         columns = "Q1",
-#'         suffix_a = "_budget", suffix_b = "_actual"
+#'         columns = list(
+#'           col_spec(
+#'             "Q1",
+#'             col_field("Q1_budget", label = "Budget"),
+#'             col_field("Q1_actual", label = "Actual")
+#'           )
+#'         )
 #'       )
 #'     )
 #'   }

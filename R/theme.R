@@ -9,16 +9,13 @@
 #' @param subtotal_bg,subtotal_text Background/text color of subtotal rows
 #'   (any row with children, other than the top level).
 #' @param leaf_hover_bg Background color of a leaf row on mouse hover.
-#' @param positive_var_color,negative_var_color,neutral_var_color Text color
-#'   used for the automatic percentage-variance column when it is positive,
-#'   negative, or within the neutral band, respectively.
 #' @param font_family,font_size CSS font family and base font size for the
 #'   whole table.
 #' @param label_column_width,value_column_width CSS width of the sticky label
 #'   column and of each numeric value column.
 #' @return An object of class `treetable_theme`.
 #' @examples
-#' theme <- treetable_theme(header_bg = "#102a43", positive_var_color = "#1a7f37")
+#' theme <- treetable_theme(header_bg = "#102a43", subtotal_bg = "#e3f2fd")
 #' @export
 treetable_theme <- function(
   header_bg = "#1d2d3d",
@@ -26,9 +23,6 @@ treetable_theme <- function(
   subtotal_bg = "#eef6ff",
   subtotal_text = "#1d1f20",
   leaf_hover_bg = "#f7fafc",
-  positive_var_color = "#3f7a52",
-  negative_var_color = "#b1483f",
-  neutral_var_color = "#7a7a7d",
   font_family = "Inter, 'Segoe UI', sans-serif",
   font_size = "13px",
   label_column_width = "280px",
@@ -40,9 +34,6 @@ treetable_theme <- function(
     subtotal_bg = subtotal_bg,
     subtotal_text = subtotal_text,
     leaf_hover_bg = leaf_hover_bg,
-    positive_var_color = positive_var_color,
-    negative_var_color = negative_var_color,
-    neutral_var_color = neutral_var_color,
     font_family = font_family,
     font_size = font_size,
     label_column_width = label_column_width,

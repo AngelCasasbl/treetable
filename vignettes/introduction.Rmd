@@ -47,12 +47,16 @@ The result is a long-format tibble: one row per node of the tree (`level_1`,
 Add as many levels as you need — `hierarchical_table()` recurses through
 however many columns you list in `levels`.
 
-## 2. `tree_table()` with the default theme
+## 2. `tree_table()`, reactable-style columns
 
 `tree_table()` renders the same kind of hierarchy as an interactive tree
-table. Unlike `hierarchical_table()`, it expects one or two numeric columns
-*per period* you want to compare side by side (e.g. `Q1_budget`/`Q1_actual`),
-plus an `id` column identifying each leaf row:
+table. Unlike `hierarchical_table()`, its `columns` is a list of
+[col_spec()] groups — each with a header `name` and one or more
+[col_field()]s underneath it, every field with its own source column in
+`data`, its own aggregation, and its own display format. There's no shared
+naming pattern required between a group's display name and its source
+column(s); `tree_table()` also expects an `id` column identifying each leaf
+row:
 
 ```{r}
 budget_vs_actual <- tibble::tibble(
@@ -63,40 +67,64 @@ budget_vs_actual <- tibble::tibble(
   Q2_budget = c(1100, 550, 300), Q2_actual = c(1200, 500, 310)
 )
 
-tree_table(
-  budget_vs_actual,
-  levels = c("area", "category"),
-  columns = c("Q1", "Q2"),
-  suffix_a = "_budget", suffix_b = "_actual",
-  label_a = "Budget", label_b = "Actual"
+budget_columns <- list(
+  col_spec(
+    "Q1",
+    col_field("Q1_budget", label = "Budget", format = column_format(type = "currency", decimals = 0)),
+    col_field("Q1_actual", label = "Actual", format = column_format(type = "currency", decimals = 0))
+  ),
+  col_spec(
+    "Q2",
+    col_field("Q2_budget", label = "Budget", format = column_format(type = "currency", decimals = 0)),
+    col_field("Q2_actual", label = "Actual", format = column_format(type = "currency", decimals = 0))
+  )
 )
+
+tree_table(budget_vs_actual, levels = c("area", "category"), columns = budget_columns)
 ```
 
-With two metrics per column, treetable automatically adds a `VAR %` column
-showing the percentage variance between them. Pass `suffix_b = NULL` to show
-a single metric per column instead, with no variance column.
+A group with a single field (`col_spec("Q1", col_field("Q1_budget"))`, say)
+renders as one plain column. With more than one field, every field just
+renders as its own plain column next to the others under the shared group
+header — treetable does not compute a comparison between them. If you want a
+variance/percentage column, compute it yourself and add it as another
+[col_field()], so you decide what it means and how (or whether) it's styled.
 
-## 3. Custom theme and column formats
+## 3. Custom theme, and fully custom cells
 
 Use [treetable_theme()] to restyle the table's colors, fonts and column
-widths, and [column_format()] to control how each metric is displayed
-(currency, percentage, decimals, thousands separator):
+widths. `format` (a [column_format()]: currency, number/decimal, percentage,
+or text) covers most display needs, but a [col_field()]'s `cell` goes
+further, reactable-style: a `function(value, row)` returning an `htmltools`
+tag for full control over a cell's HTML — colors, badges, icons, anything —
+or `NULL` to fall back to `format` for that row:
 
 ```{r}
 tree_table(
   budget_vs_actual,
   levels = c("area", "category"),
-  columns = c("Q1", "Q2"),
-  suffix_a = "_budget", suffix_b = "_actual",
-  label_a = "Budget", label_b = "Actual",
-  theme = treetable_theme(
-    header_bg = "#102a43",
-    subtotal_bg = "#e3f2fd",
-    positive_var_color = "#1a7f37",
-    negative_var_color = "#cf222e"
+  columns = list(
+    col_spec(
+      "Q1",
+      col_field(
+        "Q1_budget", label = "Budget",
+        format = column_format(type = "currency", decimals = 0)
+      ),
+      col_field(
+        "Q1_actual", label = "Actual",
+        format = column_format(type = "currency", decimals = 0),
+        cell = function(value, row) {
+          if (is.na(value)) return(NULL)
+          over_1000 <- value > 1000
+          htmltools::tags$span(
+            style = if (over_1000) "color:#1a7f37;font-weight:600" else NULL,
+            paste0("$", format(value, big.mark = ","))
+          )
+        }
+      )
+    )
   ),
-  format_a = column_format(type = "currency", decimals = 0),
-  format_b = column_format(type = "currency", decimals = 0)
+  theme = treetable_theme(header_bg = "#102a43", subtotal_bg = "#e3f2fd")
 )
 ```
 
@@ -129,8 +157,7 @@ server <- function(input, output) {
     tree_table(
       budget_vs_actual,
       levels = c("area", "category"),
-      columns = c("Q1", "Q2"),
-      suffix_a = "_budget", suffix_b = "_actual",
+      columns = budget_columns,
       detail = detail
     )
   )
@@ -160,8 +187,7 @@ server <- function(input, output) {
     tree_table(
       budget_vs_actual,
       levels = c("area", "category"),
-      columns = c("Q1", "Q2"),
-      suffix_a = "_budget", suffix_b = "_actual",
+      columns = budget_columns,
       detail = custom_detail
     )
   )
