@@ -140,3 +140,87 @@ test_that("errors clearly when a level column is missing", {
     class = "rlang_error"
   )
 })
+
+test_that("aggregate = 'mean' averages a parent's children instead of summing them", {
+  grades <- tibble::tibble(
+    student = c("Ana", "Ana", "Leo", "Leo"),
+    subject = c("Math", "Art", "Math", "Art"),
+    grade = c(90, 100, 80, NA)
+  )
+
+  result <- hierarchical_table(
+    grades,
+    levels = c("student", "subject"),
+    values = "grade",
+    aggregate = "mean"
+  )
+
+  ana <- result[result$level == "level_1" & result$label == "Ana", ]
+  expect_equal(ana$grade, 95) # mean(90, 100), not sum (190)
+
+  # Leo's Art grade is missing: the mean must ignore it (denominator 1, not
+  # 2), matching mean(x, na.rm = TRUE) rather than an external sum / n hack
+  # that would silently divide by the wrong count.
+  leo <- result[result$level == "level_1" & result$label == "Leo", ]
+  expect_equal(leo$grade, 80)
+
+  leo_math <- result[result$level == "leaf" & result$label == "Math" & result$student == "Leo", ]
+  expect_equal(leo_math$grade, 80) # a single leaf: mean == its own value
+})
+
+test_that("aggregate = 'mean' gives NA (not NaN) for a node with no non-NA leaves", {
+  data <- tibble::tibble(
+    student = c("Ana", "Ana"),
+    subject = c("Math", "Art"),
+    grade = c(NA_real_, NA_real_)
+  )
+
+  result <- hierarchical_table(
+    data,
+    levels = c("student", "subject"),
+    values = "grade",
+    aggregate = "mean"
+  )
+
+  ana <- result[result$level == "level_1", ]
+  expect_true(is.na(ana$grade))
+  expect_false(is.nan(ana$grade))
+})
+
+test_that("aggregate accepts a named vector to mix sum and mean across values", {
+  data <- tibble::tibble(
+    student = c("Ana", "Ana"),
+    subject = c("Math", "Art"),
+    attendance = c(10, 20),
+    grade = c(90, 100)
+  )
+
+  result <- hierarchical_table(
+    data,
+    levels = c("student", "subject"),
+    values = c("attendance", "grade"),
+    aggregate = c(attendance = "sum", grade = "mean")
+  )
+
+  ana <- result[result$level == "level_1", ]
+  expect_equal(ana$attendance, 30)
+  expect_equal(ana$grade, 95)
+})
+
+test_that("aggregate errors clearly on an invalid method or a named vector missing an entry", {
+  data <- tibble::tibble(student = "Ana", subject = "Math", grade = 90)
+
+  expect_error(
+    hierarchical_table(data, levels = "student", values = "grade", aggregate = "median"),
+    class = "rlang_error"
+  )
+  expect_error(
+    hierarchical_table(
+      data,
+      levels = "student",
+      values = c("grade"),
+      aggregate = c(other = "mean")
+    ),
+    class = "rlang_error"
+  )
+})

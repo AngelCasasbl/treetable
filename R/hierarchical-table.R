@@ -1,9 +1,10 @@
 #' Aggregate a flat data frame into a hierarchical table with subtotals
 #'
 #' Groups `data` by an arbitrary number of hierarchy columns (from most
-#' general to most specific) and sums one or more numeric columns at every
-#' level, producing subtotal rows for each intermediate level plus a leaf row
-#' for the finest grouping.
+#' general to most specific) and aggregates one or more numeric columns
+#' (summed by default, or averaged via `aggregate`) at every level, producing
+#' subtotal rows for each intermediate level plus a leaf row for the finest
+#' grouping.
 #'
 #' `data` must be a "flat" data frame (one row per record) with:
 #' * One column per hierarchy level, from most general to most specific
@@ -24,6 +25,16 @@
 #' @param level_names Optional labels for the `level` column at each depth
 #'   (defaults to `"level_1"`, `"level_2"`, ...; the deepest level is always
 #'   labeled `"leaf"`).
+#' @param aggregate How each entry in `values` rolls up from leaf rows to
+#'   every ancestor node: `"sum"` (default) or `"mean"`. Either a single
+#'   string applied to every value, or a named character vector with one
+#'   `"sum"`/`"mean"` entry per `values` (e.g.
+#'   `c(amount = "sum", grade = "mean")`) to mix both in the same table.
+#'   Every node, at every depth, aggregates directly over the leaf rows
+#'   underneath it (not over its immediate children's already-aggregated
+#'   values), matching how `"sum"` already behaved. `"mean"` ignores `NA`
+#'   leaf values (as `sum` already does via `na.rm = TRUE`); a node with no
+#'   non-`NA` leaves gets `NA` instead of `NaN`.
 #' @return A long-format tibble, one row per node of the tree, with columns:
 #'   * `level`: `"level_1"`, `"level_2"`, ... (or `"leaf"` for the deepest
 #'     level).
@@ -33,7 +44,8 @@
 #'   * one column per entry in `levels`, holding that level's value for the
 #'     node (`NA` if the node sits at a shallower level), useful to
 #'     filter/expand on screen.
-#'   * one column per entry in `values`, already summed for that node.
+#'   * one column per entry in `values`, already aggregated (per `aggregate`)
+#'     for that node.
 #' @examples
 #' data <- tibble::tibble(
 #'   area     = c("Sales", "Sales", "Costs"),
@@ -42,16 +54,32 @@
 #'   units    = c(10, 5, NA)
 #' )
 #' hierarchical_table(data, levels = c("area", "category"), values = c("amount", "units"))
+#'
+#' # A parent node can show the average of its children instead of their
+#' # sum, e.g. a student's grade as the mean of their subjects' grades.
+#' grades <- tibble::tibble(
+#'   student = c("Ana", "Ana", "Leo"),
+#'   subject = c("Math", "Art", "Math"),
+#'   grade   = c(90, 100, 80)
+#' )
+#' hierarchical_table(
+#'   grades,
+#'   levels = c("student", "subject"),
+#'   values = "grade",
+#'   aggregate = "mean"
+#' )
 #' @export
 hierarchical_table <- function(
   data,
   levels,
   values,
   order_col = NULL,
-  level_names = NULL
+  level_names = NULL,
+  aggregate = "sum"
 ) {
   stopifnot(length(levels) >= 1, length(values) >= 1)
   abort_missing_columns(data, c(levels, values, order_col))
+  aggregate <- resolve_aggregate_spec(aggregate, values)
 
   if (nrow(data) == 0) {
     return(empty_hierarchical_table(data, levels, values))
@@ -67,9 +95,14 @@ hierarchical_table <- function(
       ..original_order = if (!is.null(order_col)) .data[[order_col]] else 0
     )
 
+  aggregate_funs <- lapply(aggregate, aggregate_fun)
+
   aggregated <- data |>
     dplyr::summarise(
-      dplyr::across(dplyr::all_of(values), \(x) sum(x, na.rm = TRUE)),
+      dplyr::across(
+        dplyr::all_of(values),
+        \(x) aggregate_funs[[dplyr::cur_column()]](x)
+      ),
       n = dplyr::n(),
       ..original_order = min(.data$..original_order, na.rm = TRUE),
       .by = dplyr::all_of(levels)
@@ -80,10 +113,51 @@ hierarchical_table <- function(
     levels,
     values,
     level_names,
-    depth = 1L
+    depth = 1L,
+    aggregate_funs = aggregate_funs
   )
 
   table |> dplyr::mutate(row_order = dplyr::row_number())
+}
+
+# Internal: normalizes the `aggregate` argument of hierarchical_table() into
+# a named character vector with one "sum"/"mean" entry per `values` column.
+# Accepts a single unnamed string (applied to every value) or a named
+# character vector with one entry per value.
+resolve_aggregate_spec <- function(aggregate, values, call = rlang::caller_env()) {
+  choices <- c("sum", "mean")
+
+  if (is.null(names(aggregate))) {
+    if (!rlang::is_scalar_character(aggregate)) {
+      cli::cli_abort(
+        "{.arg aggregate} must be a single string ({.val sum} or {.val mean})
+        applied to every value, or a named character vector with one entry
+        per {.arg values}.",
+        call = call
+      )
+    }
+    aggregate <- rep(aggregate, length(values))
+    names(aggregate) <- values
+  } else {
+    missing <- setdiff(values, names(aggregate))
+    if (length(missing) > 0) {
+      cli::cli_abort(
+        "{.arg aggregate} is missing an entry for {.field {missing}}.",
+        call = call
+      )
+    }
+    aggregate <- aggregate[values]
+  }
+
+  bad <- setdiff(aggregate, choices)
+  if (length(bad) > 0) {
+    cli::cli_abort(
+      "{.arg aggregate} entries must be one of {.val sum} or {.val mean}, not {.val {bad}}.",
+      call = call
+    )
+  }
+
+  aggregate
 }
 
 # Internal: empty-input shortcut for hierarchical_table(), avoiding the
@@ -105,7 +179,8 @@ build_hierarchy_node <- function(
   levels,
   values,
   level_names,
-  depth
+  depth,
+  aggregate_funs
 ) {
   current_level <- levels[depth]
   level_label <- level_names[depth]
@@ -127,7 +202,10 @@ build_hierarchy_node <- function(
 
     totals <- sub |>
       dplyr::summarise(
-        dplyr::across(dplyr::all_of(values), sum),
+        dplyr::across(
+          dplyr::all_of(values),
+          \(x) aggregate_funs[[dplyr::cur_column()]](x)
+        ),
         n = sum(.data$n)
       )
 
@@ -154,7 +232,8 @@ build_hierarchy_node <- function(
         levels,
         values,
         level_names,
-        depth + 1L
+        depth + 1L,
+        aggregate_funs
       )
       # The subtotal row has no value at deeper levels.
       for (col_name in levels[(depth + 1):length(levels)]) {

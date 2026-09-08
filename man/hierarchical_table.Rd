@@ -4,7 +4,14 @@
 \alias{hierarchical_table}
 \title{Aggregate a flat data frame into a hierarchical table with subtotals}
 \usage{
-hierarchical_table(data, levels, values, order_col = NULL, level_names = NULL)
+hierarchical_table(
+  data,
+  levels,
+  values,
+  order_col = NULL,
+  level_names = NULL,
+  aggregate = "sum"
+)
 }
 \arguments{
 \item{data}{A flat data frame/tibble.}
@@ -21,6 +28,17 @@ level (defaults to alphabetical order of the level's value).}
 \item{level_names}{Optional labels for the \code{level} column at each depth
 (defaults to \code{"level_1"}, \code{"level_2"}, ...; the deepest level is always
 labeled \code{"leaf"}).}
+
+\item{aggregate}{How each entry in \code{values} rolls up from leaf rows to
+every ancestor node: \code{"sum"} (default) or \code{"mean"}. Either a single
+string applied to every value, or a named character vector with one
+\code{"sum"}/\code{"mean"} entry per \code{values} (e.g.
+\code{c(amount = "sum", grade = "mean")}) to mix both in the same table.
+Every node, at every depth, aggregates directly over the leaf rows
+underneath it (not over its immediate children's already-aggregated
+values), matching how \code{"sum"} already behaved. \code{"mean"} ignores \code{NA}
+leaf values (as \code{sum} already does via \code{na.rm = TRUE}); a node with no
+non-\code{NA} leaves gets \code{NA} instead of \code{NaN}.}
 }
 \value{
 A long-format tibble, one row per node of the tree, with columns:
@@ -33,14 +51,16 @@ level).
 \item one column per entry in \code{levels}, holding that level's value for the
 node (\code{NA} if the node sits at a shallower level), useful to
 filter/expand on screen.
-\item one column per entry in \code{values}, already summed for that node.
+\item one column per entry in \code{values}, already aggregated (per \code{aggregate})
+for that node.
 }
 }
 \description{
 Groups \code{data} by an arbitrary number of hierarchy columns (from most
-general to most specific) and sums one or more numeric columns at every
-level, producing subtotal rows for each intermediate level plus a leaf row
-for the finest grouping.
+general to most specific) and aggregates one or more numeric columns
+(summed by default, or averaged via \code{aggregate}) at every level, producing
+subtotal rows for each intermediate level plus a leaf row for the finest
+grouping.
 }
 \details{
 \code{data} must be a "flat" data frame (one row per record) with:
@@ -62,4 +82,18 @@ data <- tibble::tibble(
   units    = c(10, 5, NA)
 )
 hierarchical_table(data, levels = c("area", "category"), values = c("amount", "units"))
+
+# A parent node can show the average of its children instead of their
+# sum, e.g. a student's grade as the mean of their subjects' grades.
+grades <- tibble::tibble(
+  student = c("Ana", "Ana", "Leo"),
+  subject = c("Math", "Art", "Math"),
+  grade   = c(90, 100, 80)
+)
+hierarchical_table(
+  grades,
+  levels = c("student", "subject"),
+  values = "grade",
+  aggregate = "mean"
+)
 }
